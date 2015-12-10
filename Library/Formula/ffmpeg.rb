@@ -1,7 +1,8 @@
 class Ffmpeg < Formula
+  desc "Play, record, convert, and stream audio and video"
   homepage "https://ffmpeg.org/"
-  url "https://ffmpeg.org/releases/ffmpeg-2.6.2.tar.bz2"
-  sha256 "889e3aa069b724dc95cbfc79ef83322a8a39d9f6225f39fad1b47294fc1f29ba"
+  url "https://ffmpeg.org/releases/ffmpeg-2.8.3.tar.bz2"
+  sha256 "1bcf993a71839bb4a37eaa0c51daf315932b6dad6089f672294545cc51a5caf6"
 
   head "https://github.com/FFmpeg/FFmpeg.git"
 
@@ -25,6 +26,8 @@ class Ffmpeg < Formula
   option "with-x265", "Enable x265 encoder"
   option "with-libsoxr", "Enable the soxr resample library"
   option "with-webp", "Enable using libwebp to encode WEBP images"
+  option "with-zeromq", "Enable using libzeromq to receive commands sent through a libzeromq client"
+  option "with-snappy", "Enable Snappy library"
   option "with-decklink", "Enable using Blackmagic Design's Decklink devices."
 
   depends_on "pkg-config" => :build
@@ -49,6 +52,7 @@ class Ffmpeg < Formula
   depends_on "libass" => :optional
   depends_on "openjpeg" => :optional
   depends_on "sdl" if build.with? "ffplay"
+  depends_on "snappy" => :optional
   depends_on "speex" => :optional
   depends_on "schroedinger" => :optional
   depends_on "fdk-aac" => :optional
@@ -63,15 +67,14 @@ class Ffmpeg < Formula
   depends_on "openssl" => :optional
   depends_on "libssh" => :optional
   depends_on "webp" => :optional
+  depends_on "zeromq" => :optional
+  depends_on "libbs2b" => :optional
   depends_on "decklink" if build.with? "decklink"
 
   if build.with? "decklink"
-      # patch `common.mk` for using `clang++` to compile `.cpp` files.
-      # `clang++` does not allow flag `-std=c99`.
-      patch do
-          url "https://github.com/dche/ffmpeg-decklink/raw/master/patch.diff"
-          sha256 "62253f9fbe8765f04cba6ade97f0e81687978e8caff1b278f176f3e4545ea34c"
-      end
+    # patch `common.mk` for using `clang++` to compile `.cpp` files,
+    # by removing `-std=c99` from `CXXFLAGS`.
+    patch :DATA
   end
 
   def install
@@ -87,10 +90,12 @@ class Ffmpeg < Formula
             "--host-ldflags=#{ENV.ldflags}",
            ]
 
+    args << "--enable-opencl" if MacOS.version > :lion
     args << "--enable-libx264" if build.with? "x264"
     args << "--enable-libmp3lame" if build.with? "lame"
     args << "--enable-libvo-aacenc" if build.with? "libvo-aacenc"
     args << "--enable-libxvid" if build.with? "xvid"
+    args << "--enable-libsnappy" if build.with? "snappy"
 
     args << "--enable-libfontconfig" if build.with? "fontconfig"
     args << "--enable-libfreetype" if build.with? "freetype"
@@ -115,13 +120,15 @@ class Ffmpeg < Formula
     args << "--enable-libvidstab" if build.with? "libvidstab"
     args << "--enable-libx265" if build.with? "x265"
     args << "--enable-libwebp" if build.with? "webp"
+    args << "--enable-libzmq" if build.with? "zeromq"
+    args << "--enable-libbs2b" if build.with? "libbs2b"
     args << "--disable-indev=qtkit" if build.without? "qtkit"
     args << "--enable-decklink" if build.with? "decklink"
 
     if build.with? "openjpeg"
       args << "--enable-libopenjpeg"
       args << "--disable-decoder=jpeg2000"
-      args << "--extra-cflags=" + %x(pkg-config --cflags libopenjpeg).chomp
+      args << "--extra-cflags=" + `pkg-config --cflags libopenjpeg`.chomp
     end
 
     # These librares are GPL-incompatible, and require ffmpeg be built with
@@ -187,3 +194,19 @@ class Ffmpeg < Formula
     assert (testpath/"video.mp4").exist?
   end
 end
+
+__END__
+diff --git a/common.mak b/common.mak
+index 20b7fa3..2851b33 100644
+--- a/common.mak
++++ b/common.mak
+@@ -37,7 +37,8 @@ CPPFLAGS   := $(IFLAGS) $(CPPFLAGS)
+ CFLAGS     += $(ECFLAGS)
+ CCFLAGS     = $(CPPFLAGS) $(CFLAGS)
+ ASFLAGS    := $(CPPFLAGS) $(ASFLAGS)
+-CXXFLAGS   += $(CPPFLAGS) $(CFLAGS)
++STDC99FLAG := -std=c99
++CXXFLAGS   += $(CPPFLAGS) $(filter-out $(STDC99FLAG),$(CFLAGS))
+ YASMFLAGS  += $(IFLAGS:%=%/) -Pconfig.asm
+
+ HOSTCCFLAGS = $(IFLAGS) $(HOSTCPPFLAGS) $(HOSTCFLAGS)
